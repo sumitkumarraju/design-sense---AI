@@ -1,6 +1,8 @@
 # DesignSense AI 🎨✨
 
-**DesignSense AI** is a real-time **Design Intelligence Platform** built as an Adobe Express Web Add-on. It analyzes your designs across 6 dimensions — layout, color, contrast, typography, spacing, and hierarchy — providing instant scoring, visual heatmap debugging, one-click auto-fixes, and exportable design reports.
+**DesignSense AI** is a real-time **Design Intelligence Platform** built as an Adobe Express Web Add-on. It analyzes designs across 6 dimensions, provides instant scoring, visual heatmap debugging, one-click auto-fixes, AI-powered suggestions via Adobe Firefly, and exportable PDF reports.
+
+---
 
 ## 🚀 Key Features
 
@@ -15,54 +17,103 @@
 | **Hierarchy** | Size dominance, position priority, visual weight |
 
 ### 🛠️ One-Click Auto-Fix Engine
-- **K-Means Alignment** — Snaps elements to detected column grid
-- **Equal Spacing** — Redistributes elements with uniform gaps
-- **WCAG Contrast Boost** — Darkens/lightens fills for 4.5:1 ratio
-- **Palette Simplification** — Merges similar hues (≤30° distance)
-- **Modular Type Scale** — Applies 1.25× scale hierarchy
-- **Font Consolidation** — Reduces to 2 most-used families
+| Fixer | Algorithm |
+|-------|-----------|
+| **Gentle Alignment** | Groups nearby elements by proximity, snaps near-misses to group median (not destructive K-Means) |
+| **Vertical Alignment** | Same proximity + median approach for Y-axis |
+| **Equal Spacing** | Redistributes elements with uniform vertical/horizontal gaps |
+| **WCAG Contrast Boost** | Smartly darkens or lightens fills for 4.5:1 ratio (handles text + shapes) |
+| **Palette Simplification** | Merges similar hues (≤30° distance) |
+| **Modular Type Scale** | Applies 1.25× scale hierarchy |
+| **Font Consolidation** | Reduces to 2 most-used font families |
 
 ### 🔥 Design Heatmap Intelligence
 Color-coded overlays directly on the canvas:
 - 🔴 **Red** → Alignment issues
 - 🟠 **Orange** → Spacing imbalance
 - 🟣 **Purple** → Low contrast
-- 🔵 **Blue** → Hierarchy issues
+- 🔵 **Blue** → Hierarchy / focal issues
+- 🟡 **Gold** → Too many colors
+
+**How it works:** Runs all 6 analyzers → draws stroke rectangles on flagged elements → click again to clear.
 
 ### 📊 Scoring & Grading
-Weighted scores across all 6 categories with A/B/C/D/F grading.
+Weighted scores across all 6 categories with **A/B/C/D/F** grading system using configurable severity weights.
 
-### 📄 Report Export
-Download a complete JSON design report including scores, issues, WCAG compliance, and recommended fixes.
+### 📄 PDF Report Export
+Exports a **styled HTML report** (Print-to-PDF) with:
+- Score circle + grade
+- Category progress bars
+- WCAG AA/AAA compliance badges
+- Full issue table with severity + suggested fixes
 
-### 🤖 AI Enhancement Layer (Optional)
-Stub architecture ready for future AI integration (OpenAI, Anthropic, Gemini) for intelligent layout rearrangement, color palette generation, and typography pairing.
+### 🤖 Adobe Firefly AI Integration
+- **OAuth2 authentication** via Adobe IMS
+- **Image generation** via Firefly v3 API
+- **AI design suggestions** — hybrid rule-based + Firefly-powered
+- **Color palette generation** — 8 curated palettes + algorithmic generation
+- **Typography AI** — modular scale suggestions + curated font pairings
+- **Layout AI** — column detection + element sizing analysis
+
+#### How to Connect
+1. Get credentials from [Adobe Developer Console](https://developer.adobe.com/developer-console/)
+2. Open add-on → click **"Adobe Firefly AI ▼"**
+3. Enter **Client ID** + **Client Secret**
+4. Click **"🔗 Connect to Firefly"**
+5. Click **"✨ AI Improve Design"** for suggestions
+
+---
 
 ## 🛠️ Tech Stack
 
-- **UI:** React 18 + TypeScript
-- **Design System:** Adobe Spectrum Web Components (`@swc-react`)
-- **Platform:** Adobe Express Web Add-on SDK
-- **Bundler:** Webpack
+| Layer | Technology |
+|-------|-----------|
+| **UI** | React 18 + TypeScript |
+| **Design System** | Adobe Spectrum Web Components (`@swc-react`) |
+| **Platform** | Adobe Express Web Add-on SDK |
+| **Bundler** | Webpack |
+| **AI** | Adobe Firefly API (v3) |
+
+---
 
 ## 📂 Project Structure
 
 ```text
 src/
 ├── sandbox/
-│   ├── analyzers/     # 6 analysis engines + AutoFixer
-│   ├── actions/       # Modular fix modules
-│   ├── scoring/       # Score calculator + severity weights
-│   ├── visual/        # Heatmap overlay engine
-│   └── ai/            # AI stubs (5 modules)
+│   ├── analyzers/          # 6 analysis engines + AutoFixer dispatcher
+│   │   ├── LayoutAnalyzer.ts
+│   │   ├── ColorAnalyzer.ts
+│   │   ├── ContrastAnalyzer.ts
+│   │   ├── TypographyAnalyzer.ts
+│   │   ├── SpacingAnalyzer.ts
+│   │   ├── HierarchyAnalyzer.ts
+│   │   └── AutoFixer.ts         # Thin dispatcher → modular fixers
+│   ├── actions/            # Modular fix modules
+│   │   ├── AlignmentFixer.ts    # Gentle nudge (proximity + median)
+│   │   ├── SpacingFixer.ts      # Vertical + horizontal spacing
+│   │   ├── ColorFixer.ts        # WCAG contrast + palette simplification
+│   │   └── TypographyFixer.ts   # Type scale + font consolidation
+│   ├── scoring/            # Score calculator + severity weights
+│   ├── visual/             # Heatmap overlay engine
+│   ├── ai/                 # AI engines (Firefly-powered)
+│   │   ├── AIProvider.ts
+│   │   ├── ColorAIEngine.ts
+│   │   ├── LayoutAIEngine.ts
+│   │   ├── TypographyAIEngine.ts
+│   │   └── PaletteGenerator.ts
+│   ├── models/             # Sandbox-side TypeScript interfaces
+│   └── code.ts             # Sandbox entry point (API surface)
 ├── ui/
-│   ├── dashboard/     # Dashboard, HeatmapToggle, ReportExport
-│   ├── components/    # ScoreCard, IssueSection, etc.
-│   ├── services/      # Scoring, suggestions, report generation
-│   └── styles/        # CSS styles
-├── models/            # Shared TypeScript interfaces
-└── config/            # AI configuration
+│   ├── dashboard/          # Dashboard, AISettings, HeatmapToggle, ReportExport
+│   ├── components/         # ScoreCard, IssueSection, CategoryPills
+│   ├── services/           # reportService, fireflyService
+│   └── styles/             # Dashboard.css, AISettings.css
+├── models/                 # Shared TypeScript interfaces
+└── config/                 # AI configuration
 ```
+
+---
 
 ## 🏎️ Getting Started
 
@@ -88,6 +139,27 @@ Open [Adobe Express](https://new.express.adobe.com/) → **Add-ons → Testing**
 npm run build
 npm run package
 ```
+
+---
+
+## 📋 Changelog
+
+### v2.0 — Design Intelligence Platform
+- **6-Dimension Analysis**: Added Spacing, Hierarchy, Contrast analyzers
+- **Modular Fixers**: AlignmentFixer (gentle nudge), SpacingFixer, ColorFixer (text+shapes), TypographyFixer
+- **Scoring Engine**: Weighted 6-category scoring with A-F grading
+- **Heatmap Engine**: Color-coded visual overlays on canvas
+- **PDF Report Export**: Styled HTML reports via Print-to-PDF
+- **Adobe Firefly AI**: OAuth2 auth, image generation, design suggestions, palette generation
+- **Architecture Overhaul**: Removed all `@ts-ignore`, clean `(el as any)` casting throughout
+- **AI Dashboard UI**: Settings panel, AI Improve button, suggestion cards
+
+### v1.0 — Initial Add-on
+- Layout, Color, Typography analyzers
+- Basic auto-fix (K-Means alignment)
+- Score display + issue list
+
+---
 
 ## 🤝 Contributing
 
