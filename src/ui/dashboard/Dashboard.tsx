@@ -2,6 +2,8 @@ import React from "react";
 import { DesignIssue } from "../../sandbox/models/DesignAnalysisResult";
 import { HeatmapToggle } from "./HeatmapToggle";
 import { ReportExport } from "./ReportExport";
+import { AISettings } from "./AISettings";
+import { AISuggestion } from "../services/fireflyService";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -34,10 +36,16 @@ interface DashboardProps {
     data: DashboardData;
     isAnalyzing: boolean;
     isHeatmapActive: boolean;
+    isAIConnected: boolean;
+    aiConnectionStatus: string;
+    aiSuggestions: AISuggestion[];
     onAnalyze: () => void;
     onFix: (issueType: string) => void;
     onToggleHeatmap: () => void;
     onExportReport: () => void;
+    onAIConnect: (clientId: string, clientSecret: string) => void;
+    onAIDisconnect: () => void;
+    onAIImprove: () => void;
 }
 
 // ─── Category Display Config ────────────────────────────────────────
@@ -57,10 +65,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     data,
     isAnalyzing,
     isHeatmapActive,
+    isAIConnected,
+    aiConnectionStatus,
+    aiSuggestions,
     onAnalyze,
     onFix,
     onToggleHeatmap,
-    onExportReport
+    onExportReport,
+    onAIConnect,
+    onAIDisconnect,
+    onAIImprove
 }) => {
     const gradeClass = `grade-${data.grade.toLowerCase()}`;
     const allIssues = ([] as DesignIssue[]).concat(
@@ -74,6 +88,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <h1>DesignSense AI</h1>
                 <p>Real-Time Design Intelligence Platform</p>
             </div>
+
+            {/* AI Settings */}
+            <AISettings
+                isConnected={isAIConnected}
+                onConnect={onAIConnect}
+                onDisconnect={onAIDisconnect}
+                connectionStatus={aiConnectionStatus}
+            />
 
             {/* Overall Score */}
             <div className="score-overview">
@@ -129,6 +151,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {isAnalyzing ? "⏳ Analyzing..." : "🔍 Analyze Design"}
                 </button>
 
+                <button
+                    className="action-btn ai-improve"
+                    onClick={onAIImprove}
+                    disabled={data.totalIssues === 0}
+                >
+                    ✨ AI Improve Design
+                </button>
+
                 <HeatmapToggle
                     isActive={isHeatmapActive}
                     onToggle={onToggleHeatmap}
@@ -148,7 +178,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onClick={() => onFix("LOW_CONTRAST")}
                     disabled={data.totalIssues === 0}
                 >
-                    ✨ Improve Design
+                    🎨 Fix Contrast
                 </button>
 
                 <ReportExport
@@ -156,6 +186,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     disabled={data.totalIssues === 0}
                 />
             </div>
+
+            {/* AI Suggestions */}
+            {aiSuggestions.length > 0 && (
+                <div className="ai-suggestions">
+                    <h3>✨ AI Suggestions ({aiSuggestions.length})</h3>
+                    {aiSuggestions.map((suggestion, i) => (
+                        <div className="ai-suggestion-item" key={i}>
+                            <div>
+                                <div className="suggestion-title">{suggestion.title}</div>
+                                <div className="suggestion-desc">{suggestion.description}</div>
+                                {suggestion.action && (
+                                    <button
+                                        className="suggestion-action"
+                                        onClick={() => onFix(suggestion.action!)}
+                                    >
+                                        Apply Fix
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Issues List */}
             {allIssues.length > 0 && (

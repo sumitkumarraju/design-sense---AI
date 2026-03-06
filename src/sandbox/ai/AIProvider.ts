@@ -1,9 +1,12 @@
 // ─── AI Provider Configuration ──────────────────────────────────────
-// Stub module for future AI integration. No actual API calls are made.
+// Supports Adobe Firefly as the primary AI provider.
 
 export interface AIConfig {
-    provider: "openai" | "anthropic" | "gemini" | "none";
+    provider: "firefly" | "openai" | "anthropic" | "gemini" | "none";
     apiKey: string;
+    clientId: string;
+    clientSecret: string;
+    accessToken: string;
     model: string;
     enabled: boolean;
 }
@@ -11,6 +14,9 @@ export interface AIConfig {
 const defaultConfig: AIConfig = {
     provider: "none",
     apiKey: "",
+    clientId: "",
+    clientSecret: "",
+    accessToken: "",
     model: "",
     enabled: false
 };
@@ -26,5 +32,13 @@ export function getAIConfig(): AIConfig {
 }
 
 export function isAIEnabled(): boolean {
-    return currentConfig.enabled && currentConfig.apiKey.length > 0;
+    return currentConfig.enabled && (
+        currentConfig.accessToken.length > 0 ||
+        currentConfig.apiKey.length > 0
+    );
+}
+
+export function setAccessToken(token: string): void {
+    currentConfig.accessToken = token;
+    currentConfig.enabled = token.length > 0;
 }

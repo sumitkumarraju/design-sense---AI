@@ -3,10 +3,18 @@ import { createRoot } from "react-dom/client";
 import { Theme } from "@swc-react/theme";
 import { Dashboard, DashboardData } from "./dashboard/Dashboard";
 import { generateReport, downloadReport } from "./services/reportService";
+import {
+    connectFirefly,
+    disconnectFirefly,
+    isFireflyConnected,
+    getDesignSuggestions,
+    AISuggestion
+} from "./services/fireflyService";
 
 import addOnUISdk, { RuntimeType } from "https://new.express.adobe.com/static/add-on-sdk/sdk.js";
 
 import "./styles/Dashboard.css";
+import "./styles/AISettings.css";
 
 // ─── Default State ──────────────────────────────────────────────────
 
@@ -41,6 +49,9 @@ const App = () => {
     const [data, setData] = useState<DashboardData>(defaultData);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [isHeatmapActive, setIsHeatmapActive] = useState(false);
+    const [isAIConnected, setIsAIConnected] = useState(false);
+    const [aiConnectionStatus, setAIConnectionStatus] = useState("");
+    const [aiSuggestions, setAISuggestions] = useState<AISuggestion[]>([]);
 
     const getSandboxProxy = async () => {
         await addOnUISdk.ready;
@@ -66,20 +77,25 @@ const App = () => {
 
             switch (issueType) {
                 case "MISALIGNED":
+                case "fixAlignment":
                     await sandboxProxy.fixAlignment();
                     break;
                 case "POOR_SPACING":
                 case "SPACING_IMBALANCE":
+                case "fixSpacing":
                     await sandboxProxy.fixSpacing();
                     break;
                 case "LOW_CONTRAST":
+                case "fixContrast":
                     await sandboxProxy.fixContrast();
                     break;
                 case "TOO_MANY_COLORS":
+                case "fixColorPalette":
                     await sandboxProxy.fixColorPalette();
                     break;
                 case "NO_FOCAL_POINT":
                 case "WEAK_HIERARCHY":
+                case "fixTypography":
                     await sandboxProxy.fixTypography();
                     break;
                 default:
@@ -120,6 +136,41 @@ const App = () => {
         downloadReport(report);
     };
 
+    // ─── AI Handlers ────────────────────────────────────────────────
+
+    const handleAIConnect = async (clientId: string, clientSecret: string) => {
+        setAIConnectionStatus("Connecting...");
+        const result = await connectFirefly({ clientId, clientSecret });
+        setIsAIConnected(result.success);
+        setAIConnectionStatus(result.message);
+    };
+
+    const handleAIDisconnect = () => {
+        disconnectFirefly();
+        setIsAIConnected(false);
+        setAIConnectionStatus("");
+        setAISuggestions([]);
+    };
+
+    const handleAIImprove = async () => {
+        // Build an issue summary for the AI
+        const allIssues = ([] as string[]).concat(
+            data.issues.layout.map(i => i.title),
+            data.issues.color.map(i => i.title),
+            data.issues.contrast.map(i => i.title),
+            data.issues.typography.map(i => i.title),
+            data.issues.spacing.map(i => i.title),
+            data.issues.hierarchy.map(i => i.title)
+        );
+
+        const summary = allIssues.length > 0
+            ? allIssues.join(", ")
+            : "general design improvement";
+
+        const suggestions = await getDesignSuggestions(summary);
+        setAISuggestions(suggestions);
+    };
+
     return (
         // @ts-ignore
         <Theme theme="express" scale="medium" color="light">
@@ -127,10 +178,16 @@ const App = () => {
                 data={data}
                 isAnalyzing={isAnalyzing}
                 isHeatmapActive={isHeatmapActive}
+                isAIConnected={isAIConnected}
+                aiConnectionStatus={aiConnectionStatus}
+                aiSuggestions={aiSuggestions}
                 onAnalyze={handleAnalyze}
                 onFix={handleFix}
                 onToggleHeatmap={handleToggleHeatmap}
                 onExportReport={handleExportReport}
+                onAIConnect={handleAIConnect}
+                onAIDisconnect={handleAIDisconnect}
+                onAIImprove={handleAIImprove}
             />
         // @ts-ignore
         </Theme>
