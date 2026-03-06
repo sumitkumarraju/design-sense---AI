@@ -1,54 +1,58 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Theme } from "@swc-react/theme";
-import { DesignPanel } from "./components/DesignPanel";
-import { DesignAnalysisResult } from "./models/DesignAnalysisResult";
-import { computeDesignScore } from "./services/designScoringService";
-import { generateSuggestions, generateQuickSummary } from "./services/suggestionEngine";
+import { Dashboard, DashboardData } from "./dashboard/Dashboard";
+import { generateReport, downloadReport } from "./services/reportService";
 
 import addOnUISdk, { RuntimeType } from "https://new.express.adobe.com/static/add-on-sdk/sdk.js";
 
-import "./styles/DesignPanel.css";
-import "./styles/ScoreCard.css";
-import "./styles/CategoryPills.css";
-import "./styles/IssueSection.css";
-import "./styles/ChecklistPanel.css";
+import "./styles/Dashboard.css";
 
-const defaultData: DesignAnalysisResult = computeDesignScore(
-    { score: 100, issues: [] },
-    { score: 100, issues: [] },
-    { score: 100, issues: [] }
-);
+// ─── Default State ──────────────────────────────────────────────────
+
+const defaultData: DashboardData = {
+    overallScore: 100,
+    grade: "A",
+    categories: {
+        layout: 100,
+        color: 100,
+        contrast: 100,
+        typography: 100,
+        spacing: 100,
+        hierarchy: 100
+    },
+    issues: {
+        layout: [],
+        color: [],
+        contrast: [],
+        typography: [],
+        spacing: [],
+        hierarchy: []
+    },
+    totalIssues: 0,
+    criticalCount: 0,
+    warningCount: 0,
+    infoCount: 0
+};
+
+// ─── App ────────────────────────────────────────────────────────────
 
 const App = () => {
-    const [data, setData] = useState<DesignAnalysisResult>(defaultData);
+    const [data, setData] = useState<DashboardData>(defaultData);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isHeatmapActive, setIsHeatmapActive] = useState(false);
 
     const getSandboxProxy = async () => {
         await addOnUISdk.ready;
         return addOnUISdk.instance.runtime.apiProxy(RuntimeType.documentSandbox) as any;
     };
 
-    const runAnalysis = async () => {
-        const sandboxProxy = await getSandboxProxy();
-        const layoutResult = await sandboxProxy.analyzeLayout();
-        const colorResult = await sandboxProxy.analyzeColors();
-        const typographyResult = await sandboxProxy.analyzeTypography();
-
-        const result = computeDesignScore(layoutResult, colorResult, typographyResult);
-        const suggestions = generateSuggestions(
-            layoutResult.issues,
-            colorResult.issues,
-            typographyResult.issues
-        );
-        const summary = generateQuickSummary(suggestions);
-        setData({ ...result, suggestions, summary });
-    };
-
     const handleAnalyze = async () => {
         setIsAnalyzing(true);
         try {
-            await runAnalysis();
+            const sandboxProxy = await getSandboxProxy();
+            const result = await sandboxProxy.runFullAnalysis();
+            setData(result);
         } catch (error) {
             console.error("Analysis failed:", error);
         } finally {
@@ -59,24 +63,74 @@ const App = () => {
     const handleFix = async (issueType: string) => {
         try {
             const sandboxProxy = await getSandboxProxy();
-            const result = await sandboxProxy.applyFix(issueType);
-            console.log("Fix result:", result);
 
-            // Re-analyze after fix to update scores
-            await runAnalysis();
+            switch (issueType) {
+                case "MISALIGNED":
+                    await sandboxProxy.fixAlignment();
+                    break;
+                case "POOR_SPACING":
+                case "SPACING_IMBALANCE":
+                    await sandboxProxy.fixSpacing();
+                    break;
+                case "LOW_CONTRAST":
+                    await sandboxProxy.fixContrast();
+                    break;
+                case "TOO_MANY_COLORS":
+                    await sandboxProxy.fixColorPalette();
+                    break;
+                case "NO_FOCAL_POINT":
+                case "WEAK_HIERARCHY":
+                    await sandboxProxy.fixTypography();
+                    break;
+                default:
+                    await sandboxProxy.applyFix(issueType);
+            }
+
+            // Re-analyze after fix
+            const result = await sandboxProxy.runFullAnalysis();
+            setData(result);
         } catch (error) {
             console.error("Fix failed:", error);
         }
     };
 
+    const handleToggleHeatmap = async () => {
+        try {
+            const sandboxProxy = await getSandboxProxy();
+
+            if (isHeatmapActive) {
+                await sandboxProxy.clearHeatmap();
+                setIsHeatmapActive(false);
+            } else {
+                await sandboxProxy.showHeatmap();
+                setIsHeatmapActive(true);
+            }
+        } catch (error) {
+            console.error("Heatmap toggle failed:", error);
+        }
+    };
+
+    const handleExportReport = () => {
+        const report = generateReport({
+            overallScore: data.overallScore,
+            grade: data.grade,
+            categories: data.categories,
+            issues: data.issues
+        });
+        downloadReport(report);
+    };
+
     return (
         // @ts-ignore
         <Theme theme="express" scale="medium" color="light">
-            <DesignPanel
+            <Dashboard
                 data={data}
+                isAnalyzing={isAnalyzing}
+                isHeatmapActive={isHeatmapActive}
                 onAnalyze={handleAnalyze}
                 onFix={handleFix}
-                isAnalyzing={isAnalyzing}
+                onToggleHeatmap={handleToggleHeatmap}
+                onExportReport={handleExportReport}
             />
         // @ts-ignore
         </Theme>

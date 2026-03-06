@@ -6,7 +6,10 @@ export interface DesignIssue {
     | "TOO_MANY_COLORS"
     | "NO_FOCAL_POINT"
     | "OVERLAP"
-    | "EDGE_PROXIMITY";
+    | "EDGE_PROXIMITY"
+    | "SPACING_IMBALANCE"
+    | "WEAK_HIERARCHY"
+    | "AAA_CONTRAST_FAIL";
     title: string;
     description: string;
     severity: "LOW" | "MEDIUM" | "HIGH";

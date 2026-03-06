@@ -6,7 +6,10 @@ export interface DesignIssue {
     | "TOO_MANY_COLORS"
     | "NO_FOCAL_POINT"
     | "OVERLAP"
-    | "EDGE_PROXIMITY";
+    | "EDGE_PROXIMITY"
+    | "SPACING_IMBALANCE"
+    | "WEAK_HIERARCHY"
+    | "AAA_CONTRAST_FAIL";
     title: string;
     description: string;
     severity: "LOW" | "MEDIUM" | "HIGH";
@@ -41,4 +44,31 @@ export interface DesignAnalysisResult extends DesignScoreData {
         impact: string;
     }[];
     summary?: string;
+}
+
+// ─── Platform-Level Types (6-Category Scoring) ──────────────────────
+
+export interface PlatformAnalysisResult {
+    overallScore: number;
+    grade: string;
+    categories: {
+        layout: number;
+        color: number;
+        contrast: number;
+        typography: number;
+        spacing: number;
+        hierarchy: number;
+    };
+    issues: {
+        layout: DesignIssue[];
+        color: DesignIssue[];
+        contrast: DesignIssue[];
+        typography: DesignIssue[];
+        spacing: DesignIssue[];
+        hierarchy: DesignIssue[];
+    };
+    totalIssues: number;
+    criticalCount: number;
+    warningCount: number;
+    infoCount: number;
 }
