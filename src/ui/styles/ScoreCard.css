@@ -1,0 +1,46 @@
+.score-card {
+    background: #1f2937;
+    color: white;
+    padding: 24px;
+    border-radius: 12px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.score-number {
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.grade-badge {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    background: #f59e0b;
+    color: #1f2937;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.grade-good {
+    background: #f59e0b;
+}
+
+.grade-fair {
+    background: #3b82f6;
+}
+
+.grade-needs-improvement {
+    background: #ef4444;
+}
+
+.score-summary {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #d1d5db;
+    line-height: 1.4;
+}
