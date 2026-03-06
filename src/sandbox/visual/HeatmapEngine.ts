@@ -19,30 +19,61 @@ const ISSUE_COLORS: Record<string, string> = {
 const HEATMAP_TAG = "__designsense_heatmap__";
 
 // ─── Draw Heatmap ───────────────────────────────────────────────────
+// If issues have elementId → draw stroke over that element.
+// If no elementId → draw overlays over ALL elements using the issue color.
+// This ensures the heatmap is always visible.
 
 export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { overlayCount: number } {
-    // Clear any existing heatmap first
+    // Clear existing heatmap first
     clearHeatmap();
 
     let overlayCount = 0;
+    if (issues.length === 0 || elements.length === 0) return { overlayCount: 0 };
 
-    // Draw per-element overlays for issues with elementId
-    issues.forEach(issue => {
-        if (!issue.elementId) return;
+    // Separate issues with and without elementId
+    const elementIssues = issues.filter(i => i.elementId);
+    const globalIssues = issues.filter(i => !i.elementId);
 
+    // Draw per-element overlays
+    elementIssues.forEach(issue => {
         const el = elements.find((e: any) => e.id === issue.elementId);
         if (!el) return;
+        if (drawOverlay(el, ISSUE_COLORS[issue.type] || "#FF0000")) overlayCount++;
+    });
 
-        const hexColor = ISSUE_COLORS[issue.type] || "#FF0000";
+    // For global issues (no elementId), highlight ALL elements with colored strokes
+    if (globalIssues.length > 0) {
+        // Pick the most severe issue's color
+        const primaryColor = ISSUE_COLORS[globalIssues[0].type] || "#FF0000";
 
+        elements.forEach(el => {
+            // Skip elements we already overlaid
+            if (elementIssues.some(i => i.elementId === (el as any).id)) return;
+            if (drawOverlay(el, primaryColor)) overlayCount++;
+        });
+    }
+
+    return { overlayCount };
+}
+
+function drawOverlay(el: any, hexColor: string): boolean {
+    try {
+        const overlay = editor.createRectangle();
+
+        const w = el.width || 100;
+        const h = el.height || 50;
+
+        overlay.width = w;
+        overlay.height = h;
+
+        // Position at the element's location
+        overlay.translation = {
+            x: el.translation?.x ?? 0,
+            y: el.translation?.y ?? 0
+        };
+
+        // Set stroke color (visible border around element)
         try {
-            const overlay = editor.createRectangle();
-
-            overlay.width = el.width || (el as any).boundsInParent?.width || 100;
-            overlay.height = el.height || (el as any).boundsInParent?.height || 100;
-
-            // Stroke-only overlay
-            (overlay as any).fill = null;
             (overlay as any).stroke = {
                 type: constants.StrokeType.color,
                 color: colorUtils.fromHex(hexColor),
@@ -51,40 +82,27 @@ export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { 
                 dashOffset: 0,
                 position: constants.StrokePosition.center
             };
-
-            overlay.translation = {
-                x: (el as any).boundsInParent?.x ?? el.translation.x,
-                y: (el as any).boundsInParent?.y ?? el.translation.y
-            };
-
-            (overlay as any).name = HEATMAP_TAG;
-
-            editor.context.insertionParent.children.append(overlay);
-            overlayCount++;
-        } catch { /* skip */ }
-    });
-
-    // Draw region badges for issues without elementId
-    const regionIssues = issues.filter(i => !i.elementId);
-    if (regionIssues.length > 0) {
-        regionIssues.forEach((issue, idx) => {
-            const hexColor = ISSUE_COLORS[issue.type] || "#FF0000";
+        } catch {
+            // Fallback: set fill instead of stroke
             try {
-                const badge = editor.createRectangle();
-                badge.width = 20;
-                badge.height = 20;
-
-                (badge as any).fill = colorUtils.fromHex(hexColor);
-                badge.translation = { x: 5, y: 5 + idx * 25 };
-                (badge as any).name = HEATMAP_TAG;
-
-                editor.context.insertionParent.children.append(badge);
-                overlayCount++;
+                (overlay as any).fill = colorUtils.fromHex(hexColor);
+                (overlay as any).opacity = 0.3;
             } catch { /* skip */ }
-        });
-    }
+        }
 
-    return { overlayCount };
+        // Try to make it transparent fill
+        try {
+            (overlay as any).fill = null;
+        } catch { /* some SDKs don't support null fill */ }
+
+        // Tag for cleanup
+        (overlay as any).name = HEATMAP_TAG;
+
+        editor.context.insertionParent.children.append(overlay);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 // ─── Clear Heatmap ──────────────────────────────────────────────────

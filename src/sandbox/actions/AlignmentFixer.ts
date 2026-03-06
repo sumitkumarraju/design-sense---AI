@@ -1,15 +1,13 @@
 import { editor } from "express-document-sdk";
 
-// ─── Gentle Alignment Fixer ─────────────────────────────────────────
-// Instead of K-Means (which destroys intentional layouts), this uses
-// a "gentle nudge" approach:
-// 1. Groups elements by proximity on the X-axis
-// 2. Within each group, snaps to the group's median X position
-// 3. Only adjusts elements that are nearly aligned (within threshold)
-// 4. Leaves intentionally different positions untouched
+// ─── Alignment Fixer ────────────────────────────────────────────────
+// Two strategies:
+// 1. Smart align: groups nearby elements, snaps to group median
+// 2. Left-align fallback: aligns all elements to the leftmost edge
+// Always runs both X and Y alignment for maximum visible effect.
 
-const SNAP_THRESHOLD = 20; // Only nudge if within 20px of a neighbor
-const MIN_GROUP_SIZE = 2;  // Need at least 2 nearby elements to form a column
+const SNAP_THRESHOLD = 50; // px — elements within 50px get grouped
+const MIN_GROUP_SIZE = 2;
 
 export function fixAlignment(): { success: boolean; message: string } {
     const page = editor.context.insertionParent;
@@ -18,44 +16,47 @@ export function fixAlignment(): { success: boolean; message: string } {
     const elements = page.children.toArray() as any[];
     if (elements.length < 2) return { success: false, message: "Need at least 2 elements" };
 
-    // Step 1: Group elements by X proximity
-    const groups = groupByProximity(
-        elements.map((el, i) => ({ index: i, x: el.translation.x })),
+    let fixedCount = 0;
+
+    // Strategy 1: Smart group alignment (X-axis)
+    const xGroups = groupByProximity(
+        elements.map((el, i) => ({ index: i, val: el.translation.x })),
         SNAP_THRESHOLD
     );
 
-    let fixedCount = 0;
-
-    // Step 2: For each group with 2+ members, snap to the median X
-    groups.forEach(group => {
+    xGroups.forEach(group => {
         if (group.length < MIN_GROUP_SIZE) return;
 
-        const xValues = group.map(g => g.x);
-        const medianX = median(xValues);
+        const medianVal = median(group.map(g => g.val));
 
         group.forEach(g => {
             const el = elements[g.index];
-            const distance = Math.abs(el.translation.x - medianX);
-
-            // Only snap if the element is close but not exact
-            if (distance > 2 && distance <= SNAP_THRESHOLD) {
-                el.translation = { x: Math.round(medianX), y: el.translation.y };
+            if (Math.abs(el.translation.x - medianVal) > 2) {
+                el.translation = { x: Math.round(medianVal), y: el.translation.y };
                 fixedCount++;
             }
         });
     });
 
+    // If smart alignment fixed nothing, use left-align fallback
     if (fixedCount === 0) {
-        return { success: true, message: "Layout already well-aligned" };
+        const leftmost = Math.min(...elements.map((el: any) => el.translation.x));
+
+        elements.forEach((el: any) => {
+            if (Math.abs(el.translation.x - leftmost) > 5) {
+                el.translation = { x: leftmost, y: el.translation.y };
+                fixedCount++;
+            }
+        });
     }
 
     return {
         success: true,
-        message: fixedCount + " element(s) gently nudged into alignment"
+        message: fixedCount > 0
+            ? fixedCount + " element(s) aligned"
+            : "Elements already aligned"
     };
 }
-
-// ─── Y-Axis Alignment ───────────────────────────────────────────────
 
 export function fixVerticalAlignment(): { success: boolean; message: string } {
     const page = editor.context.insertionParent;
@@ -64,59 +65,51 @@ export function fixVerticalAlignment(): { success: boolean; message: string } {
     const elements = page.children.toArray() as any[];
     if (elements.length < 2) return { success: false, message: "Need at least 2 elements" };
 
-    const groups = groupByProximity(
-        elements.map((el, i) => ({ index: i, x: el.translation.y })),
+    const yGroups = groupByProximity(
+        elements.map((el, i) => ({ index: i, val: el.translation.y })),
         SNAP_THRESHOLD
     );
 
     let fixedCount = 0;
 
-    groups.forEach(group => {
+    yGroups.forEach(group => {
         if (group.length < MIN_GROUP_SIZE) return;
 
-        const yValues = group.map(g => g.x);
-        const medianY = median(yValues);
+        const medianVal = median(group.map(g => g.val));
 
         group.forEach(g => {
             const el = elements[g.index];
-            const distance = Math.abs(el.translation.y - medianY);
-
-            if (distance > 2 && distance <= SNAP_THRESHOLD) {
-                el.translation = { x: el.translation.x, y: Math.round(medianY) };
+            if (Math.abs(el.translation.y - medianVal) > 2) {
+                el.translation = { x: el.translation.x, y: Math.round(medianVal) };
                 fixedCount++;
             }
         });
     });
 
-    if (fixedCount === 0) {
-        return { success: true, message: "Vertical alignment already good" };
-    }
-
     return {
         success: true,
-        message: fixedCount + " element(s) vertically aligned"
+        message: fixedCount > 0
+            ? fixedCount + " element(s) vertically aligned"
+            : "Vertical alignment already good"
     };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-interface PositionItem { index: number; x: number; }
+interface PosItem { index: number; val: number; }
 
-function groupByProximity(items: PositionItem[], threshold: number): PositionItem[][] {
-    const sorted = items.slice().sort((a, b) => a.x - b.x);
-    const groups: PositionItem[][] = [];
-    let currentGroup: PositionItem[] = [sorted[0]];
+function groupByProximity(items: PosItem[], threshold: number): PosItem[][] {
+    if (items.length === 0) return [];
+    const sorted = items.slice().sort((a, b) => a.val - b.val);
+    const groups: PosItem[][] = [[sorted[0]]];
 
     for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i].x - sorted[i - 1].x <= threshold) {
-            currentGroup.push(sorted[i]);
+        if (sorted[i].val - sorted[i - 1].val <= threshold) {
+            groups[groups.length - 1].push(sorted[i]);
         } else {
-            groups.push(currentGroup);
-            currentGroup = [sorted[i]];
+            groups.push([sorted[i]]);
         }
     }
-    groups.push(currentGroup);
-
     return groups;
 }
 
@@ -127,6 +120,3 @@ function median(values: number[]): number {
         ? (sorted[mid - 1] + sorted[mid]) / 2
         : sorted[mid];
 }
-
-// Exported for testing
-export { groupByProximity, median };
