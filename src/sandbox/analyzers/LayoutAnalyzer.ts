@@ -50,11 +50,9 @@ export function highlightElements(elements: readonly any[]): void {
         rect.width = el.width || 100;
         rect.height = el.height || 100;
 
-        // @ts-ignore
-        rect.fill = colorUtils.fromHex("#transparent"); // SDK might handles this differently or null
+        (rect as any).fill = null;
 
-        // @ts-ignore
-        rect.stroke = {
+        (rect as any).stroke = {
             type: constants.StrokeType.color,
             color: colorUtils.fromHex("#FF0000"),
             width: 2,

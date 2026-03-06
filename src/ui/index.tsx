@@ -172,8 +172,7 @@ const App = () => {
     };
 
     return (
-        // @ts-ignore
-        <Theme theme="express" scale="medium" color="light">
+        <Theme theme="express" scale="medium" color="light" {...({} as any)}>
             <Dashboard
                 data={data}
                 isAnalyzing={isAnalyzing}
@@ -189,7 +188,6 @@ const App = () => {
                 onAIDisconnect={handleAIDisconnect}
                 onAIImprove={handleAIImprove}
             />
-        // @ts-ignore
         </Theme>
     );
 };
