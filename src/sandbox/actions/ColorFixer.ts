@@ -4,10 +4,36 @@ import { editor, colorUtils } from "express-document-sdk";
 
 interface RGB { r: number; g: number; b: number; }
 
+function extractFillColor(el: any): RGB | null {
+    try {
+        // Try shape fill first
+        if (el.fill && el.fill.color) {
+            return toRGB(el.fill.color);
+        }
+        // Try allTextStyles for text elements
+        if (el.allTextStyles && el.allTextStyles.color) {
+            return toRGB(el.allTextStyles.color);
+        }
+        // Try characterStyles
+        if (el.characterStyles && el.characterStyles.fill) {
+            return toRGB(el.characterStyles.fill.color || el.characterStyles.fill);
+        }
+        // Direct fill that is a color
+        if (el.fill && typeof el.fill.red === "number") {
+            return toRGB(el.fill);
+        }
+    } catch { /* skip */ }
+    return null;
+}
+
 function toRGB(colorObj: any): RGB | null {
     try {
         if (typeof colorObj.red === "number") {
-            return { r: Math.round(colorObj.red * 255), g: Math.round(colorObj.green * 255), b: Math.round(colorObj.blue * 255) };
+            return {
+                r: Math.round(colorObj.red * 255),
+                g: Math.round(colorObj.green * 255),
+                b: Math.round(colorObj.blue * 255)
+            };
         }
         if (typeof colorObj.r === "number") {
             return { r: colorObj.r, g: colorObj.g, b: colorObj.b };
@@ -17,36 +43,48 @@ function toRGB(colorObj: any): RGB | null {
 }
 
 function relativeLuminance(rgb: RGB): number {
-    const [rs, gs, bs] = [rgb.r / 255, rgb.g / 255, rgb.b / 255];
-    const r = rs <= 0.03928 ? rs / 12.92 : Math.pow((rs + 0.055) / 1.055, 2.4);
-    const g = gs <= 0.03928 ? gs / 12.92 : Math.pow((gs + 0.055) / 1.055, 2.4);
-    const b = bs <= 0.03928 ? bs / 12.92 : Math.pow((bs + 0.055) / 1.055, 2.4);
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const linearize = (c: number) => {
+        const s = c / 255;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * linearize(rgb.r) + 0.7152 * linearize(rgb.g) + 0.0722 * linearize(rgb.b);
 }
 
 function contrastRatio(c1: RGB, c2: RGB): number {
     const l1 = relativeLuminance(c1);
     const l2 = relativeLuminance(c2);
-    const lighter = Math.max(l1, l2);
-    const darker = Math.min(l1, l2);
-    return (lighter + 0.05) / (darker + 0.05);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 }
 
-function darkenColor(rgb: RGB, targetRatio: number, bg: RGB): RGB {
+function adjustForContrast(rgb: RGB, bg: RGB, targetRatio: number): RGB {
+    const bgLum = relativeLuminance(bg);
     let r = rgb.r, g = rgb.g, b = rgb.b;
-    for (let i = 0; i < 50; i++) {
-        const ratio = contrastRatio({ r, g, b }, bg);
-        if (ratio >= targetRatio) break;
-        r = Math.max(0, r - 5);
-        g = Math.max(0, g - 5);
-        b = Math.max(0, b - 5);
+
+    // Determine if we need to darken or lighten
+    const fgLum = relativeLuminance(rgb);
+    const shouldDarken = fgLum > bgLum;
+
+    for (let i = 0; i < 100; i++) {
+        if (contrastRatio({ r, g, b }, bg) >= targetRatio) break;
+
+        if (shouldDarken) {
+            // Darken the foreground
+            r = Math.max(0, r - 3);
+            g = Math.max(0, g - 3);
+            b = Math.max(0, b - 3);
+        } else {
+            // Lighten the foreground
+            r = Math.min(255, r + 3);
+            g = Math.min(255, g + 3);
+            b = Math.min(255, b + 3);
+        }
     }
     return { r, g, b };
 }
 
 function rgbToHex(c: RGB): string {
-    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
-    return "#" + toHex(c.r) + toHex(c.g) + toHex(c.b);
+    const h = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
+    return "#" + h(c.r) + h(c.g) + h(c.b);
 }
 
 function rgbToHsl(c: RGB): { h: number; s: number; l: number } {
@@ -65,47 +103,60 @@ function rgbToHsl(c: RGB): { h: number; s: number; l: number } {
     return { h, s, l };
 }
 
-// ─── WCAG Contrast Boost Fixer ──────────────────────────────────────
+function applyColorToElement(el: any, hex: string): boolean {
+    try {
+        const color = colorUtils.fromHex(hex);
+
+        // Try text-specific approach first
+        const elType = String(el.type || "").toLowerCase();
+        if (elType === "text") {
+            // For text elements, try setting fill directly
+            (el as any).fill = color;
+            return true;
+        }
+
+        // For shape elements
+        (el as any).fill = color;
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// ─── WCAG Contrast Fixer ────────────────────────────────────────────
+// Fixes ALL element types (shapes + text) for WCAG AA 4.5:1 contrast
 
 export function fixContrast(): { success: boolean; message: string } {
     const page = editor.context.insertionParent;
     if (!page) return { success: false, message: "No page found" };
 
-    const elements: any[] = [...page.children.toArray()];
-    const white = { r: 255, g: 255, b: 255 };
+    const elements = page.children.toArray() as any[];
+    const bg: RGB = { r: 255, g: 255, b: 255 }; // assume white background
     let fixedCount = 0;
 
     elements.forEach(el => {
         try {
-            const fill = el.fill;
-            if (!fill || !fill.color) return;
-
-            const rgb = toRGB(fill.color);
+            const rgb = extractFillColor(el);
             if (!rgb) return;
 
-            const ratio = contrastRatio(rgb, white);
+            const ratio = contrastRatio(rgb, bg);
 
             if (ratio < 4.5) {
-                const lum = relativeLuminance(rgb);
+                const adjusted = adjustForContrast(rgb, bg, 4.5);
+                const hex = rgbToHex(adjusted);
 
-                if (lum > 0.5) {
-                    const darkened = darkenColor(rgb, 4.5, white);
-                    // @ts-ignore
-                    el.fill = colorUtils.fromHex(rgbToHex(darkened));
-                    fixedCount++;
-                } else if (ratio < 3.0) {
-                    const adjusted = darkenColor(rgb, 4.5, white);
-                    // @ts-ignore
-                    el.fill = colorUtils.fromHex(rgbToHex(adjusted));
+                if (applyColorToElement(el, hex)) {
                     fixedCount++;
                 }
             }
-        } catch { /* skip non-fillable elements */ }
+        } catch { /* skip non-colorable elements */ }
     });
 
     return {
         success: true,
-        message: fixedCount + " element(s) adjusted for WCAG 4.5:1 contrast"
+        message: fixedCount > 0
+            ? fixedCount + " element(s) adjusted for WCAG 4.5:1 contrast"
+            : "All elements already meet contrast requirements"
     };
 }
 
@@ -115,21 +166,19 @@ export function fixColorPalette(): { success: boolean; message: string } {
     const page = editor.context.insertionParent;
     if (!page) return { success: false, message: "No page found" };
 
-    const elements: any[] = [...page.children.toArray()];
+    const elements = page.children.toArray() as any[];
 
     const colorMap: { el: any; rgb: RGB }[] = [];
     elements.forEach(el => {
         try {
-            const fill = el.fill;
-            if (fill && fill.color) {
-                const rgb = toRGB(fill.color);
-                if (rgb) colorMap.push({ el, rgb });
-            }
+            const rgb = extractFillColor(el);
+            if (rgb) colorMap.push({ el, rgb });
         } catch { /* skip */ }
     });
 
     if (colorMap.length < 2) return { success: false, message: "Not enough colors to simplify" };
 
+    // Group by hue proximity (within 30°)
     const groups: typeof colorMap[] = [];
     const assigned = new Set<number>();
 
@@ -157,11 +206,9 @@ export function fixColorPalette(): { success: boolean; message: string } {
         if (group.length < 2) return;
         const targetHex = rgbToHex(group[0].rgb);
         for (let i = 1; i < group.length; i++) {
-            try {
-                // @ts-ignore
-                group[i].el.fill = colorUtils.fromHex(targetHex);
+            if (applyColorToElement(group[i].el, targetHex)) {
                 fixedCount++;
-            } catch { /* skip */ }
+            }
         }
     });
 

@@ -11,8 +11,8 @@ import { analyzeContrast } from "./analyzers/ContrastAnalyzer";
 
 // ─── Actions ────────────────────────────────────────────────────────
 import { applyFix } from "./analyzers/AutoFixer";
-import { fixAlignment } from "./actions/AlignmentFixer";
-import { fixSpacing as fixSpacingAction } from "./actions/SpacingFixer";
+import { fixAlignment, fixVerticalAlignment } from "./actions/AlignmentFixer";
+import { fixSpacing as fixSpacingAction, fixHorizontalSpacing } from "./actions/SpacingFixer";
 import { fixContrast as fixContrastAction, fixColorPalette } from "./actions/ColorFixer";
 import { fixTypography, fixFontFamilies } from "./actions/TypographyFixer";
 
@@ -65,7 +65,9 @@ function start(): void {
 
         // ─── Modular Fixers ─────────────────────────────────────
         fixAlignment: () => fixAlignment(),
+        fixVerticalAlignment: () => fixVerticalAlignment(),
         fixSpacing: () => fixSpacingAction(),
+        fixHorizontalSpacing: () => fixHorizontalSpacing(),
         fixContrast: () => fixContrastAction(),
         fixColorPalette: () => fixColorPalette(),
         fixTypography: () => fixTypography(),
@@ -78,7 +80,6 @@ function start(): void {
 
             const elements = page.children.toArray();
 
-            // Collect all issues from all analyzers
             const allIssues = [
                 ...analyzeLayout().issues,
                 ...analyzeColors().issues,

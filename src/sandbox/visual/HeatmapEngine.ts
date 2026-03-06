@@ -4,16 +4,16 @@ import { DesignIssue } from "../models/DesignAnalysisResult";
 // ─── Heatmap Color Mapping ──────────────────────────────────────────
 
 const ISSUE_COLORS: Record<string, string> = {
-    MISALIGNED: "#FF0000",         // 🔴 Red — alignment
-    POOR_SPACING: "#FFA500",       // 🟠 Orange — spacing
-    SPACING_IMBALANCE: "#FFA500",  // 🟠 Orange — spacing
-    LOW_CONTRAST: "#800080",       // 🟣 Purple — contrast
-    AAA_CONTRAST_FAIL: "#800080",  // 🟣 Purple — contrast
-    NO_FOCAL_POINT: "#0000FF",     // 🔵 Blue — typography/hierarchy
-    WEAK_HIERARCHY: "#0000FF",     // 🔵 Blue — hierarchy
-    TOO_MANY_COLORS: "#FFD700",    // 🟡 Gold — color
-    OVERLAP: "#FF4444",            // Red variant
-    EDGE_PROXIMITY: "#FF6600"      // Dark orange
+    MISALIGNED: "#FF0000",
+    POOR_SPACING: "#FFA500",
+    SPACING_IMBALANCE: "#FFA500",
+    LOW_CONTRAST: "#800080",
+    AAA_CONTRAST_FAIL: "#800080",
+    NO_FOCAL_POINT: "#0000FF",
+    WEAK_HIERARCHY: "#0000FF",
+    TOO_MANY_COLORS: "#FFD700",
+    OVERLAP: "#FF4444",
+    EDGE_PROXIMITY: "#FF6600"
 };
 
 const HEATMAP_TAG = "__designsense_heatmap__";
@@ -21,8 +21,12 @@ const HEATMAP_TAG = "__designsense_heatmap__";
 // ─── Draw Heatmap ───────────────────────────────────────────────────
 
 export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { overlayCount: number } {
+    // Clear any existing heatmap first
+    clearHeatmap();
+
     let overlayCount = 0;
 
+    // Draw per-element overlays for issues with elementId
     issues.forEach(issue => {
         if (!issue.elementId) return;
 
@@ -34,15 +38,12 @@ export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { 
         try {
             const overlay = editor.createRectangle();
 
-            overlay.width = el.width || el.boundsInParent?.width || 100;
-            overlay.height = el.height || el.boundsInParent?.height || 100;
+            overlay.width = el.width || (el as any).boundsInParent?.width || 100;
+            overlay.height = el.height || (el as any).boundsInParent?.height || 100;
 
-            // Stroke-only overlay (no fill)
-            // @ts-ignore
-            overlay.fill = null;
-
-            // @ts-ignore
-            overlay.stroke = {
+            // Stroke-only overlay
+            (overlay as any).fill = null;
+            (overlay as any).stroke = {
                 type: constants.StrokeType.color,
                 color: colorUtils.fromHex(hexColor),
                 width: 3,
@@ -52,35 +53,30 @@ export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { 
             };
 
             overlay.translation = {
-                x: el.boundsInParent?.x ?? el.translation.x,
-                y: el.boundsInParent?.y ?? el.translation.y
+                x: (el as any).boundsInParent?.x ?? el.translation.x,
+                y: (el as any).boundsInParent?.y ?? el.translation.y
             };
 
-            // Tag overlay for later removal
-            // @ts-ignore - name exists at runtime
-            overlay.name = HEATMAP_TAG;
+            (overlay as any).name = HEATMAP_TAG;
 
             editor.context.insertionParent.children.append(overlay);
             overlayCount++;
-        } catch { /* skip elements that can't be overlaid */ }
+        } catch { /* skip */ }
     });
 
-    // Also draw region-level heatmap for issues without elementId
+    // Draw region badges for issues without elementId
     const regionIssues = issues.filter(i => !i.elementId);
-    if (regionIssues.length > 0 && elements.length > 0) {
-        regionIssues.forEach(issue => {
+    if (regionIssues.length > 0) {
+        regionIssues.forEach((issue, idx) => {
             const hexColor = ISSUE_COLORS[issue.type] || "#FF0000";
             try {
-                // Draw a small indicator badge at top-left
                 const badge = editor.createRectangle();
                 badge.width = 20;
                 badge.height = 20;
 
-                // @ts-ignore
-                badge.fill = colorUtils.fromHex(hexColor);
-                badge.translation = { x: 5, y: 5 + overlayCount * 25 };
-                // @ts-ignore - name exists at runtime
-                badge.name = HEATMAP_TAG;
+                (badge as any).fill = colorUtils.fromHex(hexColor);
+                badge.translation = { x: 5, y: 5 + idx * 25 };
+                (badge as any).name = HEATMAP_TAG;
 
                 editor.context.insertionParent.children.append(badge);
                 overlayCount++;
@@ -100,11 +96,9 @@ export function clearHeatmap(): { removedCount: number } {
     const elements = page.children.toArray();
     let removedCount = 0;
 
-    // Remove in reverse order to avoid index shifting
     for (let i = elements.length - 1; i >= 0; i--) {
         const el = elements[i];
-        // @ts-ignore - name exists at runtime
-        if (el.name === HEATMAP_TAG) {
+        if ((el as any).name === HEATMAP_TAG) {
             try {
                 el.removeFromParent();
                 removedCount++;
