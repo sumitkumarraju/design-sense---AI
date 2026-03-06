@@ -1,13 +1,17 @@
 import { editor } from "express-document-sdk";
 
 // ─── Alignment Fixer ────────────────────────────────────────────────
-// Two strategies:
-// 1. Smart align: groups nearby elements, snaps to group median
-// 2. Left-align fallback: aligns all elements to the leftmost edge
-// Always runs both X and Y alignment for maximum visible effect.
+// PHILOSOPHY: Only fix elements that are ALMOST aligned but off by a
+// few pixels. Never move elements that are intentionally at different
+// positions. This prevents destroying multi-column layouts.
+//
+// Algorithm:
+// 1. For each pair of elements, check if X positions are within 10px
+// 2. If yes → snap to the position that more elements share
+// 3. Same for Y positions (horizontal rows)
+// 4. Result: subtle corrections, never layout destruction
 
-const SNAP_THRESHOLD = 50; // px — elements within 50px get grouped
-const MIN_GROUP_SIZE = 2;
+const NEAR_MISS_THRESHOLD = 10; // Only fix if within 10px of another element
 
 export function fixAlignment(): { success: boolean; message: string } {
     const page = editor.context.insertionParent;
@@ -18,43 +22,17 @@ export function fixAlignment(): { success: boolean; message: string } {
 
     let fixedCount = 0;
 
-    // Strategy 1: Smart group alignment (X-axis)
-    const xGroups = groupByProximity(
-        elements.map((el, i) => ({ index: i, val: el.translation.x })),
-        SNAP_THRESHOLD
-    );
+    // Step 1: Fix X-axis near-misses (vertical column alignment)
+    fixedCount += fixAxisNearMisses(elements, "x");
 
-    xGroups.forEach(group => {
-        if (group.length < MIN_GROUP_SIZE) return;
-
-        const medianVal = median(group.map(g => g.val));
-
-        group.forEach(g => {
-            const el = elements[g.index];
-            if (Math.abs(el.translation.x - medianVal) > 2) {
-                el.translation = { x: Math.round(medianVal), y: el.translation.y };
-                fixedCount++;
-            }
-        });
-    });
-
-    // If smart alignment fixed nothing, use left-align fallback
-    if (fixedCount === 0) {
-        const leftmost = Math.min(...elements.map((el: any) => el.translation.x));
-
-        elements.forEach((el: any) => {
-            if (Math.abs(el.translation.x - leftmost) > 5) {
-                el.translation = { x: leftmost, y: el.translation.y };
-                fixedCount++;
-            }
-        });
-    }
+    // Step 2: Fix Y-axis near-misses (horizontal row alignment)
+    fixedCount += fixAxisNearMisses(elements, "y");
 
     return {
         success: true,
         message: fixedCount > 0
-            ? fixedCount + " element(s) aligned"
-            : "Elements already aligned"
+            ? fixedCount + " element(s) snapped to nearest neighbor"
+            : "All elements are already well-aligned"
     };
 }
 
@@ -65,26 +43,7 @@ export function fixVerticalAlignment(): { success: boolean; message: string } {
     const elements = page.children.toArray() as any[];
     if (elements.length < 2) return { success: false, message: "Need at least 2 elements" };
 
-    const yGroups = groupByProximity(
-        elements.map((el, i) => ({ index: i, val: el.translation.y })),
-        SNAP_THRESHOLD
-    );
-
-    let fixedCount = 0;
-
-    yGroups.forEach(group => {
-        if (group.length < MIN_GROUP_SIZE) return;
-
-        const medianVal = median(group.map(g => g.val));
-
-        group.forEach(g => {
-            const el = elements[g.index];
-            if (Math.abs(el.translation.y - medianVal) > 2) {
-                el.translation = { x: el.translation.x, y: Math.round(medianVal) };
-                fixedCount++;
-            }
-        });
-    });
+    const fixedCount = fixAxisNearMisses(elements, "y");
 
     return {
         success: true,
@@ -94,29 +53,67 @@ export function fixVerticalAlignment(): { success: boolean; message: string } {
     };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────
+// ─── Core: Fix Near-Misses on One Axis ──────────────────────────────
 
-interface PosItem { index: number; val: number; }
+function fixAxisNearMisses(elements: any[], axis: "x" | "y"): number {
+    // Collect all positions on this axis
+    const positions: { index: number; pos: number }[] = elements.map((el, i) => ({
+        index: i,
+        pos: axis === "x" ? el.translation.x : el.translation.y
+    }));
 
-function groupByProximity(items: PosItem[], threshold: number): PosItem[][] {
-    if (items.length === 0) return [];
-    const sorted = items.slice().sort((a, b) => a.val - b.val);
-    const groups: PosItem[][] = [[sorted[0]]];
+    // Sort by position
+    positions.sort((a, b) => a.pos - b.pos);
 
-    for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i].val - sorted[i - 1].val <= threshold) {
-            groups[groups.length - 1].push(sorted[i]);
+    // Find groups of nearly-aligned elements (within threshold)
+    const groups: typeof positions[] = [];
+    let currentGroup = [positions[0]];
+
+    for (let i = 1; i < positions.length; i++) {
+        if (positions[i].pos - currentGroup[0].pos <= NEAR_MISS_THRESHOLD) {
+            currentGroup.push(positions[i]);
         } else {
-            groups.push([sorted[i]]);
+            if (currentGroup.length >= 2) groups.push(currentGroup);
+            currentGroup = [positions[i]];
         }
     }
-    return groups;
-}
+    if (currentGroup.length >= 2) groups.push(currentGroup);
 
-function median(values: number[]): number {
-    const sorted = values.slice().sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 === 0
-        ? (sorted[mid - 1] + sorted[mid]) / 2
-        : sorted[mid];
+    // For each group, snap all to the most common position (mode)
+    let fixedCount = 0;
+
+    groups.forEach(group => {
+        // Find the position that most elements share (mode)
+        const posCount = new Map<number, number>();
+        group.forEach(item => {
+            const rounded = Math.round(item.pos);
+            posCount.set(rounded, (posCount.get(rounded) || 0) + 1);
+        });
+
+        let targetPos = group[0].pos;
+        let maxCount = 0;
+        posCount.forEach((count, pos) => {
+            if (count > maxCount) {
+                maxCount = count;
+                targetPos = pos;
+            }
+        });
+
+        // Snap elements that aren't at the target
+        group.forEach(item => {
+            const el = elements[item.index];
+            const diff = Math.abs(item.pos - targetPos);
+
+            if (diff > 1 && diff <= NEAR_MISS_THRESHOLD) {
+                if (axis === "x") {
+                    el.translation = { x: Math.round(targetPos), y: el.translation.y };
+                } else {
+                    el.translation = { x: el.translation.x, y: Math.round(targetPos) };
+                }
+                fixedCount++;
+            }
+        });
+    });
+
+    return fixedCount;
 }
