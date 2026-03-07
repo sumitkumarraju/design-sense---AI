@@ -35,7 +35,7 @@ Color-coded overlays directly on the canvas:
 - 🔵 **Blue** → Hierarchy / focal issues
 - 🟡 **Gold** → Too many colors
 
-**How it works:** Runs all 6 analyzers → draws stroke rectangles on flagged elements → click again to clear.
+**How it works:** Runs all 6 analyzers → draws stroke rectangles via `editor.makeStroke()` on flagged elements → tagged with `addOnData` for reliable cleanup → click again to clear all overlays.
 
 ### 📊 Scoring & Grading
 Weighted scores across all 6 categories with **A/B/C/D/F** grading system using configurable severity weights.
@@ -71,7 +71,8 @@ Exports a **styled HTML report** (Print-to-PDF) with:
 | **UI** | React 18 + TypeScript |
 | **Design System** | Adobe Spectrum Web Components (`@swc-react`) |
 | **Platform** | Adobe Express Web Add-on SDK |
-| **Bundler** | Webpack |
+| **Document SDK** | `express-document-sdk` (runtime external) |
+| **Bundler** | Webpack 5 |
 | **AI** | Adobe Firefly API (v3) |
 
 ---
@@ -90,12 +91,12 @@ src/
 │   │   ├── HierarchyAnalyzer.ts
 │   │   └── AutoFixer.ts         # Thin dispatcher → modular fixers
 │   ├── actions/            # Modular fix modules
-│   │   ├── AlignmentFixer.ts    # Gentle nudge (proximity + median)
+│   │   ├── AlignmentFixer.ts    # Near-miss alignment (10px threshold)
 │   │   ├── SpacingFixer.ts      # Vertical + horizontal spacing
-│   │   ├── ColorFixer.ts        # WCAG contrast + palette simplification
+│   │   ├── ColorFixer.ts        # WCAG contrast + palette (uses editor.makeColorFill)
 │   │   └── TypographyFixer.ts   # Type scale + font consolidation
 │   ├── scoring/            # Score calculator + severity weights
-│   ├── visual/             # Heatmap overlay engine
+│   ├── visual/             # Heatmap engine (uses editor.makeStroke + addOnData)
 │   ├── ai/                 # AI engines (Firefly-powered)
 │   │   ├── AIProvider.ts
 │   │   ├── ColorAIEngine.ts
@@ -144,14 +145,22 @@ npm run package
 
 ## 📋 Changelog
 
+### v2.1 — SDK API Fix & Reliability
+- **Root cause fix**: All fill/stroke assignments now use correct Express Document SDK APIs
+  - `editor.makeColorFill(color)` for fills (was incorrectly using `colorUtils.fromHex()` directly)
+  - `editor.makeStroke({color, width})` for strokes (was incorrectly using raw object assignment)
+  - `addOnData.setItem()` for heatmap tagging (was incorrectly using `.name` property)
+- **Heatmap**: Now reliably draws + clears overlays with dual cleanup (ID tracking + addOnData)
+- **Contrast fixer**: Actually applies darkened colors to elements
+- **Alignment fixer**: Near-miss only (10px threshold) — never rearranges intentional positioning
+
 ### v2.0 — Design Intelligence Platform
 - **6-Dimension Analysis**: Added Spacing, Hierarchy, Contrast analyzers
-- **Modular Fixers**: AlignmentFixer (gentle nudge), SpacingFixer, ColorFixer (text+shapes), TypographyFixer
+- **Modular Fixers**: AlignmentFixer (gentle nudge), SpacingFixer, ColorFixer, TypographyFixer
 - **Scoring Engine**: Weighted 6-category scoring with A-F grading
 - **Heatmap Engine**: Color-coded visual overlays on canvas
 - **PDF Report Export**: Styled HTML reports via Print-to-PDF
 - **Adobe Firefly AI**: OAuth2 auth, image generation, design suggestions, palette generation
-- **Architecture Overhaul**: Removed all `@ts-ignore`, clean `(el as any)` casting throughout
 - **AI Dashboard UI**: Settings panel, AI Improve button, suggestion cards
 
 ### v1.0 — Initial Add-on
