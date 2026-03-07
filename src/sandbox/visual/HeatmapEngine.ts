@@ -1,4 +1,4 @@
-import { editor, colorUtils, constants } from "express-document-sdk";
+import { editor, colorUtils } from "express-document-sdk";
 import { DesignIssue } from "../models/DesignAnalysisResult";
 
 // ─── Heatmap Color Mapping ──────────────────────────────────────────
@@ -16,91 +16,81 @@ const ISSUE_COLORS: Record<string, string> = {
     EDGE_PROXIMITY: "#FF6600"
 };
 
-const HEATMAP_TAG = "__designsense_heatmap__";
+const HEATMAP_TAG = "designsense_heatmap";
+
+// Track heatmap overlay IDs for cleanup
+let heatmapOverlayIds: string[] = [];
 
 // ─── Draw Heatmap ───────────────────────────────────────────────────
-// If issues have elementId → draw stroke over that element.
-// If no elementId → draw overlays over ALL elements using the issue color.
-// This ensures the heatmap is always visible.
 
 export function drawHeatmap(elements: readonly any[], issues: DesignIssue[]): { overlayCount: number } {
-    // Clear existing heatmap first
+    // Clear existing first
     clearHeatmap();
 
     let overlayCount = 0;
     if (issues.length === 0 || elements.length === 0) return { overlayCount: 0 };
 
-    // Separate issues with and without elementId
     const elementIssues = issues.filter(i => i.elementId);
     const globalIssues = issues.filter(i => !i.elementId);
 
-    // Draw per-element overlays
+    // Per-element overlays
     elementIssues.forEach(issue => {
         const el = elements.find((e: any) => e.id === issue.elementId);
         if (!el) return;
-        if (drawOverlay(el, ISSUE_COLORS[issue.type] || "#FF0000")) overlayCount++;
+        if (createOverlay(el, ISSUE_COLORS[issue.type] || "#FF0000")) overlayCount++;
     });
 
-    // For global issues (no elementId), highlight ALL elements with colored strokes
+    // Global issue overlays — mark all elements
     if (globalIssues.length > 0) {
-        // Pick the most severe issue's color
-        const primaryColor = ISSUE_COLORS[globalIssues[0].type] || "#FF0000";
-
+        const color = ISSUE_COLORS[globalIssues[0].type] || "#FF0000";
         elements.forEach(el => {
-            // Skip elements we already overlaid
             if (elementIssues.some(i => i.elementId === (el as any).id)) return;
-            if (drawOverlay(el, primaryColor)) overlayCount++;
+            if (createOverlay(el, color)) overlayCount++;
         });
     }
 
     return { overlayCount };
 }
 
-function drawOverlay(el: any, hexColor: string): boolean {
+function createOverlay(el: any, hexColor: string): boolean {
     try {
         const overlay = editor.createRectangle();
 
-        const w = el.width || 100;
-        const h = el.height || 50;
+        overlay.width = el.width || 100;
+        overlay.height = el.height || 40;
 
-        overlay.width = w;
-        overlay.height = h;
-
-        // Position at the element's location
         overlay.translation = {
             x: el.translation?.x ?? 0,
             y: el.translation?.y ?? 0
         };
 
-        // Set stroke color (visible border around element)
+        // Use correct SDK API: editor.makeStroke()
+        const strokeColor = colorUtils.fromHex(hexColor);
+        overlay.stroke = editor.makeStroke({
+            color: strokeColor,
+            width: 3
+        });
+
+        // Set fill to undefined (transparent) — correct SDK way
+        overlay.fill = undefined;
+
+        // Set low opacity so design is visible underneath
+        overlay.opacity = 0.8;
+
+        // Tag with addOnData for cleanup
         try {
-            (overlay as any).stroke = {
-                type: constants.StrokeType.color,
-                color: colorUtils.fromHex(hexColor),
-                width: 3,
-                dashPattern: [],
-                dashOffset: 0,
-                position: constants.StrokePosition.center
-            };
+            overlay.addOnData.setItem(HEATMAP_TAG, "true");
         } catch {
-            // Fallback: set fill instead of stroke
-            try {
-                (overlay as any).fill = colorUtils.fromHex(hexColor);
-                (overlay as any).opacity = 0.3;
-            } catch { /* skip */ }
+            // If addOnData fails, track by ID
         }
 
-        // Try to make it transparent fill
-        try {
-            (overlay as any).fill = null;
-        } catch { /* some SDKs don't support null fill */ }
-
-        // Tag for cleanup
-        (overlay as any).name = HEATMAP_TAG;
+        // Track overlay ID for cleanup
+        heatmapOverlayIds.push(overlay.id);
 
         editor.context.insertionParent.children.append(overlay);
         return true;
-    } catch {
+    } catch (err) {
+        console.error("Heatmap overlay failed:", err);
         return false;
     }
 }
@@ -111,18 +101,37 @@ export function clearHeatmap(): { removedCount: number } {
     const page = editor.context.insertionParent;
     if (!page) return { removedCount: 0 };
 
-    const elements = page.children.toArray();
     let removedCount = 0;
+    const elements = page.children.toArray();
 
+    // Strategy 1: Remove by tracked IDs
     for (let i = elements.length - 1; i >= 0; i--) {
         const el = elements[i];
-        if ((el as any).name === HEATMAP_TAG) {
+        if (heatmapOverlayIds.includes(el.id)) {
             try {
                 el.removeFromParent();
                 removedCount++;
             } catch { /* skip */ }
         }
     }
+
+    // Strategy 2: Also check addOnData tag
+    if (removedCount === 0) {
+        const freshElements = page.children.toArray();
+        for (let i = freshElements.length - 1; i >= 0; i--) {
+            const el = freshElements[i];
+            try {
+                const tag = el.addOnData?.getItem(HEATMAP_TAG);
+                if (tag === "true") {
+                    el.removeFromParent();
+                    removedCount++;
+                }
+            } catch { /* skip non-taggable elements */ }
+        }
+    }
+
+    // Reset tracking
+    heatmapOverlayIds = [];
 
     return { removedCount };
 }

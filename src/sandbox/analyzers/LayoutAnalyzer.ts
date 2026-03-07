@@ -1,4 +1,4 @@
-import { editor, colorUtils, constants } from "express-document-sdk";
+import { editor, colorUtils } from "express-document-sdk";
 import { DesignIssue } from "../models/DesignAnalysisResult";
 
 export function analyzeLayout(): { score: number, issues: DesignIssue[] } {
@@ -50,16 +50,12 @@ export function highlightElements(elements: readonly any[]): void {
         rect.width = el.width || 100;
         rect.height = el.height || 100;
 
-        (rect as any).fill = null;
-
-        (rect as any).stroke = {
-            type: constants.StrokeType.color,
+        // Use correct SDK APIs
+        rect.fill = undefined;
+        rect.stroke = editor.makeStroke({
             color: colorUtils.fromHex("#FF0000"),
-            width: 2,
-            dashPattern: [],
-            dashOffset: 0,
-            position: constants.StrokePosition.center
-        };
+            width: 2
+        });
 
         rect.translation = {
             x: el.translation.x,
